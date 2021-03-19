@@ -1,0 +1,10 @@
+# Initial comment
+"some" directive
+some 'dir'ec"tiv"'e'
+# Later comment
+some "quoted directive"
+s'om'e "weird 'directive'"    # EOL comment
+some "stranger "'"'"directive"'"'
+    
+    # Also check that EOF ~ EOL
+    eof

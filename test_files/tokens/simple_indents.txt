@@ -1,0 +1,13 @@
+
+
+simple directive
+block directive
+    indented directive
+
+    simple directive with multiple arguments
+
+
+
+outdented
+
+    suffix indented

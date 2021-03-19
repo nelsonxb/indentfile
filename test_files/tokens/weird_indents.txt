@@ -1,0 +1,10 @@
+outer
+  inner
+        more inner
+  sub
+
+next outer
+        level 1
+         level 2
+
+    bad

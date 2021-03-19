@@ -1,0 +1,16 @@
+
+block
+    indented json {
+        "key": "value",
+    "obj": {
+        "id": 1,
+        "value": null
+    }
+}
+
+    indented array [
+        {"id": 1},
+        {"id": 2},
+        [{"id": 3}],
+        {"id": 4, "values": [1, 2, 3]}
+    ]
