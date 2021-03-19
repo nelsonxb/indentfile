@@ -18,6 +18,7 @@ var (
 	ErrEarlyEOF       = fmt.Errorf("%w: Unexpected EOF", ErrLex)
 	ErrBadIndent      = fmt.Errorf("%w: Unexpected indent", ErrLex)
 	ErrBadOutdent     = fmt.Errorf("%w: Unmatched indent", ErrLex)
+	ErrBadEOL         = fmt.Errorf("%w: Unexpected CR without matching LF", ErrLex)
 	ErrNoUnquote      = fmt.Errorf("%w: Unexpected end-of-line", ErrLex)
 	ErrLexJSON        = fmt.Errorf("JSON %w", ErrLex)
 	ErrJSONNotAllowed = fmt.Errorf("%w: Unexpected start of JSON", ErrLexJSON)
@@ -87,12 +88,11 @@ func (t *Tokenizer) Next() (tok Token, err error) {
 				// Ensure all indented blocks are closed.
 				// Don't close the root block though.
 
-				tailIndent := t.indentStack.Remove(
-					t.indentStack.Back()).([]byte)
+				t.indentStack.Remove(t.indentStack.Back())
 				t.lastToken = OutdentToken
 				tok = &outdentToken{
 					LineInfo{t.lineno, t.offset, t.line},
-					tailIndent,
+					t.indentStack.Back().Value.([]byte),
 				}
 				return
 			}
@@ -107,6 +107,16 @@ func (t *Tokenizer) Next() (tok Token, err error) {
 	case ' ', '\t':
 		t.offset++
 		return t.Next()
+
+	case '\r':
+		if t.offset == len(t.line) || t.line[t.offset] != '\n' {
+			t.lastToken = ErrorToken
+			tok = &errorToken{LineInfo{t.lineno, t.offset, t.line}}
+			err = ErrBadEOL
+			return
+		}
+
+		fallthrough
 
 	case '\n':
 		if t.lastToken == nilToken || t.lastToken == TerminatorToken {
@@ -201,6 +211,7 @@ func (t *Tokenizer) Next() (tok Token, err error) {
 					return t.Next()
 				}
 
+				t.outdenting = false
 				t.lastToken = OutdentToken
 				tok = &outdentToken{
 					LineInfo{t.lineno, t.offset, t.line},
@@ -234,7 +245,7 @@ func (t *Tokenizer) nextWord() (tok Token, err error) {
 		c := t.line[i]
 
 		if quote == 0 {
-			if c == ' ' || c == '\n' || c == '#' {
+			if c == ' ' || c == '\t' || c == '\n' || c == '#' {
 				break
 
 			} else if c == '"' || c == '\'' {
@@ -244,6 +255,16 @@ func (t *Tokenizer) nextWord() (tok Token, err error) {
 				})
 
 				at-- // Undo next loop's increment
+
+			} else if c == '\r' {
+				if i+1 == len(t.line) || t.line[i+1] != '\n' {
+					t.lastToken = ErrorToken
+					tok = &errorToken{LineInfo{t.lineno, t.offset, t.line}}
+					err = ErrBadEOL
+					return
+				}
+
+				continue // Skip incrementing counters
 
 			} else {
 				if len(word.charstops) == 0 {
@@ -263,7 +284,15 @@ func (t *Tokenizer) nextWord() (tok Token, err error) {
 
 			at-- // Undo next loop's increment
 
-		} else if c == '\n' {
+		} else if c == '\n' || c == '\r' {
+			if c == '\r' && (i+1 == len(t.line) || t.line[i+1] != '\n') {
+				// Unpaired CRLF is the more important error.
+				t.lastToken = ErrorToken
+				tok = &errorToken{LineInfo{t.lineno, t.offset, t.line}}
+				err = ErrBadEOL
+				return
+			}
+
 			// Can't have newline in quote!
 			t.lastToken = ErrorToken
 			tok = &errorToken{LineInfo{t.lineno, i + 1, t.line}}
@@ -520,7 +549,7 @@ func findCharstop(at int, charstops []charstop, line []byte) LineInfo {
 			return LineInfo{
 				stop.lineno,
 				stop.offset + (at - stop.at),
-				line[startat:endl],
+				line[startat : endl+startat],
 			}
 		}
 	}
