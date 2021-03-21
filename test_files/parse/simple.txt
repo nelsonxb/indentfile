@@ -1,0 +1,13 @@
+
+msg hello world
+
+prefix *
+    msg says hello
+    msg waves
+
+    prefix looks
+        msg at you
+    
+    msg unnervingly
+
+msg uhhh lets just go
