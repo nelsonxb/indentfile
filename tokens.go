@@ -9,21 +9,6 @@ import (
 	"io"
 )
 
-// Some errors that may be returned from Tokenizer.Next().
-// When `errors.Is(err, ErrLex)`,
-// the returned token is also defined
-// and will have `token.Type() == ErrorToken`.
-var (
-	ErrLex            = errors.New("Token error")
-	ErrEarlyEOF       = fmt.Errorf("%w: Unexpected EOF", ErrLex)
-	ErrBadIndent      = fmt.Errorf("%w: Unexpected indent", ErrLex)
-	ErrBadOutdent     = fmt.Errorf("%w: Unmatched indent", ErrLex)
-	ErrBadEOL         = fmt.Errorf("%w: Unexpected CR without matching LF", ErrLex)
-	ErrNoUnquote      = fmt.Errorf("%w: Unexpected end-of-line", ErrLex)
-	ErrLexJSON        = fmt.Errorf("JSON %w", ErrLex)
-	ErrJSONNotAllowed = fmt.Errorf("%w: Unexpected start of JSON", ErrLexJSON)
-)
-
 // Tokenizer provides a stream of tokens from an input stream.
 type Tokenizer struct {
 	r              *bufio.Reader
@@ -53,7 +38,7 @@ func NewTokenizer(r io.Reader) (t *Tokenizer) {
 // Next returns the next token in the stream.
 // It returns an error of io.EOF at the end of the file.
 func (t *Tokenizer) Next() (tok Token, err error) {
-	if t.lastToken == ErrorToken {
+	if t.lastToken == errorToken {
 		return nil, io.EOF
 	}
 
@@ -99,7 +84,7 @@ func (t *Tokenizer) Next() (tok Token, err error) {
 
 		}
 
-		t.lastToken = ErrorToken
+		t.lastToken = errorToken
 		return nil, io.EOF
 	}
 
@@ -110,9 +95,9 @@ func (t *Tokenizer) Next() (tok Token, err error) {
 
 	case '\r':
 		if t.offset == len(t.line) || t.line[t.offset] != '\n' {
-			t.lastToken = ErrorToken
-			tok = &errorToken{LineInfo{t.lineno, t.offset, t.line}}
-			err = ErrBadEOL
+			t.lastToken = errorToken
+			err = errorAtf(ErrCRLF, t.info(),
+				"found CR without matching LF")
 			return
 		}
 
@@ -157,9 +142,14 @@ func (t *Tokenizer) Next() (tok Token, err error) {
 
 	case '{', '[':
 		if t.lastToken != WordToken {
-			t.lastToken = ErrorToken
-			tok = &errorToken{LineInfo{t.lineno, t.offset, t.line}}
-			err = ErrJSONNotAllowed
+			t.lastToken = errorToken
+			if t.line[t.offset-1] == '{' {
+				err = errorAtf(ErrToken, t.info(),
+					"unexpected JSON object")
+			} else {
+				err = errorAtf(ErrToken, t.info(),
+					"unexpected JSON array")
+			}
 			return
 		}
 
@@ -167,9 +157,9 @@ func (t *Tokenizer) Next() (tok Token, err error) {
 
 	default:
 		if t.lastToken == nilToken && t.offset != 1 {
-			t.lastToken = ErrorToken
-			tok = &errorToken{LineInfo{t.lineno, t.offset, t.line}}
-			err = ErrBadIndent
+			t.lastToken = errorToken
+			err = errorAtf(ErrIndent, t.info(),
+				"first item must be unindented")
 			return
 		} else if t.lastToken == TerminatorToken {
 			indent := t.line[:t.offset-1]
@@ -178,9 +168,8 @@ func (t *Tokenizer) Next() (tok Token, err error) {
 			if bytes.HasPrefix(indent, tailData) {
 				if t.outdenting {
 					// Didn't recognise indent!
-					t.lastToken = ErrorToken
-					tok = &errorToken{LineInfo{t.lineno, t.offset, t.line}}
-					err = ErrBadOutdent
+					t.lastToken = errorToken
+					err = errorAt(ErrOutdent, t.info())
 					return
 				}
 
@@ -221,15 +210,18 @@ func (t *Tokenizer) Next() (tok Token, err error) {
 
 			} else {
 				// Didn't recognise indent!
-				t.lastToken = ErrorToken
-				tok = &errorToken{LineInfo{t.lineno, t.offset, t.line}}
-				err = ErrBadOutdent
+				t.lastToken = errorToken
+				err = errorAt(ErrOutdent, t.info())
 				return
 			}
 		}
 
 		return t.nextWord()
 	}
+}
+
+func (t *Tokenizer) info() LineInfo {
+	return LineInfo{t.lineno, t.offset, t.line}
 }
 
 func (t *Tokenizer) nextWord() (tok Token, err error) {
@@ -258,9 +250,10 @@ func (t *Tokenizer) nextWord() (tok Token, err error) {
 
 			} else if c == '\r' {
 				if i+1 == len(t.line) || t.line[i+1] != '\n' {
-					t.lastToken = ErrorToken
-					tok = &errorToken{LineInfo{t.lineno, t.offset, t.line}}
-					err = ErrBadEOL
+					t.lastToken = errorToken
+					tok = nil
+					err = errorAtf(ErrCRLF, t.info(),
+						"found CR without matching LF")
 					return
 				}
 
@@ -287,21 +280,22 @@ func (t *Tokenizer) nextWord() (tok Token, err error) {
 		} else if c == '\n' || c == '\r' {
 			if c == '\r' && (i+1 == len(t.line) || t.line[i+1] != '\n') {
 				// Unpaired CRLF is the more important error.
-				t.lastToken = ErrorToken
-				tok = &errorToken{LineInfo{t.lineno, t.offset, t.line}}
-				err = ErrBadEOL
+				t.lastToken = errorToken
+				tok = nil
+				err = errorAtf(ErrCRLF, t.info(),
+					"found CR without matching LF")
 				return
 			}
 
 			// Can't have newline in quote!
-			t.lastToken = ErrorToken
-			tok = &errorToken{LineInfo{t.lineno, i + 1, t.line}}
-			err = ErrNoUnquote
+			t.lastToken = errorToken
+			tok = nil
+			err = errorAt(ErrUnquote, t.info())
 			return
 
 		} else {
-
 			word.word = append(word.word, c)
+
 		}
 
 		at++
@@ -309,9 +303,9 @@ func (t *Tokenizer) nextWord() (tok Token, err error) {
 	}
 
 	if t.offset-1 > len(t.line) {
-		t.lastToken = ErrorToken
-		tok = &errorToken{LineInfo{t.lineno, t.offset - 1, t.line}}
-		err = ErrEarlyEOF
+		t.lastToken = errorToken
+		tok = nil
+		err = errorAt(ErrEOF, t.info())
 	} else {
 		t.lastToken = WordToken
 		t.lastWordEnd = t.offset
@@ -322,10 +316,9 @@ func (t *Tokenizer) nextWord() (tok Token, err error) {
 
 func (t *Tokenizer) nextJSON() (tok Token, err error) {
 	// TODO
-	t.lastToken = ErrorToken
-	tok = &errorToken{LineInfo{t.lineno, t.offset, t.line}}
-	err = ErrJSONNotAllowed
-	return
+	t.lastToken = errorToken
+	return nil, errorAtf(ErrToken, t.info(),
+		"JSON arguments not yet implemented")
 }
 
 // TokenType enumerates the valid types of token.
@@ -334,10 +327,7 @@ type TokenType int
 // The valid token type identifiers.
 const (
 	nilToken = TokenType(iota)
-	// Dummy token carrying error detail.
-	// Text() will return the full line.
-	// LineInfo(0) will return details of where the error occurred.
-	ErrorToken
+	errorToken
 	// Token is a single "word", as defined in shell syntax.
 	// Text() will return the shell-parsed text of a field.
 	WordToken
@@ -399,22 +389,6 @@ type charstop struct {
 	at     int
 	lineno int
 	offset int
-}
-
-type errorToken struct {
-	info LineInfo
-}
-
-func (t *errorToken) Type() TokenType {
-	return ErrorToken
-}
-
-func (t *errorToken) LineInfo(at int) LineInfo {
-	return t.info
-}
-
-func (t *errorToken) Text() []byte {
-	return t.info.Text
 }
 
 type wordToken struct {

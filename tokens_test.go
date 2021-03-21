@@ -67,8 +67,7 @@ func TestWeirdIndents(t *testing.T) {
 		{WordToken, LineInfo{8, 10, nil}, []byte("level"), nil},
 		{WordToken, LineInfo{8, 16, nil}, []byte("2"), nil},
 		{TerminatorToken, LineInfo{8, 17, nil}, []byte{'\n'}, nil},
-		{ErrorToken, LineInfo{10, 5, nil}, []byte("    bad\n"),
-			ErrBadOutdent},
+		{nilToken, LineInfo{}, nil, ErrOutdent},
 	})
 }
 
@@ -104,7 +103,7 @@ func TestStartIndented(t *testing.T) {
 	testTokenSequence(t, "tokens/start_indented.txt", []expectToken{
 		{CommentToken, LineInfo{1, 5, nil}, []byte("# This comment shouldn't matter..."), nil},
 		{CommentToken, LineInfo{2, 1, nil}, []byte("# And neither should this one..."), nil},
-		{ErrorToken, LineInfo{4, 5, nil}, []byte("    This line should produce an error.\n"), ErrBadIndent},
+		{nilToken, LineInfo{}, nil, ErrIndent},
 	})
 }
 
@@ -234,24 +233,11 @@ func testTokenSequence(t *testing.T, respath string, expectTokens []expectToken)
 				problems++
 				t.Errorf("Token %d error %q; want %s",
 					i, err, tokenTypeName(expect.Type))
-			} else if expect.Err != nil && expect.Type == ErrorToken {
-				if actual == nil {
+			} else if expect.Err != nil {
+				if !errors.Is(err, expect.Err) {
 					problems++
-					t.Errorf("Token %d = nil; want ErrorToken", i)
-				} else if actual.Type() != ErrorToken {
-					problems++
-					t.Errorf("Token %d type = %s; want ErrorToken",
-						i, tokenTypeName(actual.Type()))
-				} else if !cmpLineInfo(actual.LineInfo(0), expect.Info) {
-					problems++
-					t.Errorf("Token %d line info = %v; want %v",
-						i, actual.LineInfo(0),
-						expect.Info)
-				} else if !bytes.Equal(actual.Text(), expect.Text) {
-					problems++
-					t.Errorf("Token %d text = %q; want %q",
-						i, string(actual.Text()),
-						string(expect.Text))
+					t.Errorf("Token %d error %q; want error %q",
+						i, err, expect.Err)
 				}
 			}
 
@@ -295,8 +281,8 @@ func tokenTypeName(t TokenType) string {
 	switch t {
 	case nilToken:
 		return "nilToken"
-	case ErrorToken:
-		return "ErrorToken"
+	case errorToken:
+		return "errorToken"
 	case WordToken:
 		return "WordToken"
 	case ObjectToken:

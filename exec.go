@@ -11,13 +11,6 @@ import (
 	"unicode"
 )
 
-var (
-	ErrDirective        = errors.New("Directive error")
-	ErrNoDirective      = fmt.Errorf("%w: directive not recognised", ErrDirective)
-	ErrNumArgs          = fmt.Errorf("%w: argument count incorrect", ErrDirective)
-	ErrObjectNotAllowed = fmt.Errorf("%w: JSON object not used for this directive", ErrDirective)
-)
-
 type DirectiveHandler interface {
 	Directive(name string, argv []string) (interface{}, error)
 }
@@ -54,6 +47,7 @@ func ParseFile(path string, context interface{}) (err error) {
 	var r io.ReadCloser
 	if path == "-" {
 		r = os.Stdin
+		path = "<stdin>"
 	} else {
 		r, err = os.Open(path)
 		if err != nil {
@@ -61,7 +55,7 @@ func ParseFile(path string, context interface{}) (err error) {
 		}
 	}
 
-	return Parse(r, context)
+	return ErrorInFile(Parse(r, context), path)
 }
 
 func ParseTokens(tok *Tokenizer, context interface{}) (err error) {
@@ -69,6 +63,7 @@ func ParseTokens(tok *Tokenizer, context interface{}) (err error) {
 	var token Token
 
 	var block interface{}
+	var line []Token
 	var words []string
 	var json []byte
 
@@ -76,12 +71,15 @@ tokenLoop:
 	for token, err = tok.Next(); err == nil; token, err = tok.Next() {
 		switch token.Type() {
 		case WordToken:
+			line = append(line, token)
 			words = append(words, string(token.Text()))
 
 		case ObjectToken:
+			line = append(line, token)
 			json = token.Text()
 
 		case TerminatorToken:
+			line = append(line, token)
 			if len(json) == 0 {
 				block, err = handler.Directive(words[0], words[1:])
 			} else {
@@ -89,15 +87,23 @@ tokenLoop:
 			}
 
 			if err != nil {
+				if locatable, is := err.(errLocatable); is {
+					err = locatable.IntoLocation(line)
+				} else if errors.Is(err, ErrArgumentJSON) {
+					err = errorAt(err, line[len(line)-2].LineInfo(0))
+				} else {
+					err = errorAt(err, line[0].LineInfo(0))
+				}
 				return
 			}
 
+			line = nil
 			words = nil
 			json = nil
 
 		case IndentToken:
 			if block == nil {
-				return ErrBadIndent
+				return errorAt(ErrIndent, token.LineInfo(0))
 			}
 
 			err = ParseTokens(tok, block)
@@ -146,7 +152,7 @@ type patchedHandler struct {
 }
 
 func (h *patchedHandler) ObjectDirective(name string, argv []string, object []byte) (interface{}, error) {
-	return nil, ErrObjectNotAllowed
+	return nil, ErrArgumentJSON
 }
 
 type methodDirectiveHandler reflect.Value
@@ -156,11 +162,15 @@ func (ctx methodDirectiveHandler) Directive(name string, argv []string) (interfa
 }
 
 func (ctx methodDirectiveHandler) ObjectDirective(name string, argv []string, object []byte) (interface{}, error) {
-	name = snakeToPascal(name)
+	if strings.ToLower(name) != name {
+		return nil, DirectiveErrorf("%w %q", ErrUnknown, name)
+	}
 
-	method := reflect.Value(ctx).MethodByName(name)
+	methodName := snakeToPascal(name)
+
+	method := reflect.Value(ctx).MethodByName(methodName)
 	if !method.IsValid() {
-		return nil, ErrNoDirective
+		return nil, DirectiveErrorf("%w %q", ErrUnknown, name)
 	}
 
 	methodType := method.Type()
@@ -169,11 +179,12 @@ func (ctx methodDirectiveHandler) ObjectDirective(name string, argv []string, ob
 	var argValues, results []reflect.Value
 
 	if nret > 2 {
-		return nil, ErrNoDirective
-	} else if name == "End" && nargs == 0 && nret == 1 {
+		return nil, DirectiveErrorf("%w %q", ErrUnknown, name)
+	} else if methodName == "End" && nargs == 0 && nret == 1 {
 		if methodType.Out(0).Implements(
 			reflect.TypeOf((*error)(nil)).Elem()) {
-			return nil, ErrNoDirective
+			return nil, DirectiveErrorf("%w %q (.End is a reserved method)",
+				ErrUnknown, name)
 		}
 	}
 
@@ -186,7 +197,8 @@ func (ctx methodDirectiveHandler) ObjectDirective(name string, argv []string, ob
 	if methodType.IsVariadic() {
 		nargs--
 		if methodType.In(nargs).Elem().Kind() != reflect.String {
-			return nil, ErrNoDirective
+			return nil, DirectiveErrorf("%w %q (.%s has bad signature)",
+				ErrUnknown, name, methodName)
 		}
 	}
 
@@ -196,21 +208,22 @@ func (ctx methodDirectiveHandler) ObjectDirective(name string, argv []string, ob
 			if objIndex == -1 {
 				objIndex = i
 			} else {
-				return nil, ErrNoDirective
+				return nil, DirectiveErrorf("%w %q (.%s has bad signature)",
+					ErrUnknown, name, methodName)
 			}
 		}
 	}
 
 	if nargv < nargs {
-		return nil, ErrNumArgs
+		return nil, ArgumentErrorf(nargv+3, "not enough arguments")
 	}
 
 	if !methodType.IsVariadic() && nargv > nargs {
-		return nil, ErrNumArgs
+		return nil, ArgumentErrorf(nargs, "too many arguments")
 	}
 
 	if objIndex == -1 {
-		return nil, ErrNoDirective
+		return nil, ArgumentErrorf(-1, "expected JSON argument")
 	}
 
 	argValues = make([]reflect.Value, nargv)
@@ -222,9 +235,10 @@ func (ctx methodDirectiveHandler) ObjectDirective(name string, argv []string, ob
 		objArgValue := reflect.New(objArgType)
 		err := json.Unmarshal(object, objArgValue.Interface())
 		if err != nil {
-			return nil, err
+			return nil, ArgumentErrorf(-1, "%w", err)
 		}
 
+		argValues = append(argValues, reflect.Value{})
 		argValues[objIndex] = objArgValue
 	} else {
 		objIndex = nargv
@@ -243,13 +257,16 @@ func (ctx methodDirectiveHandler) ObjectDirective(name string, argv []string, ob
 	if len(results) == 1 {
 		result := results[0].Interface()
 		if err, is := result.(error); is {
-			return nil, err
+			return nil, DirectiveErrorf("%w", err)
 		} else {
 			return result, nil
 		}
 	} else if len(results) == 2 {
 		result := results[0].Interface()
 		err := results[1].Interface().(error)
+		if err != nil {
+			err = DirectiveErrorf("%w", err)
+		}
 		return result, err
 	} else {
 		return nil, nil
@@ -257,10 +274,6 @@ func (ctx methodDirectiveHandler) ObjectDirective(name string, argv []string, ob
 }
 
 func snakeToPascal(name string) string {
-	if strings.ToLower(name) != name {
-		panic(fmt.Errorf("Name %q is not lower-case", name))
-	}
-
 	isFirstOfWord := true
 	isFirstOfName := true
 	needPrepend := false
