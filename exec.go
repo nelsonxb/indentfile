@@ -214,6 +214,10 @@ func (ctx methodDirectiveHandler) ObjectDirective(name string, argv []string, ob
 		}
 	}
 
+	if object != nil {
+		nargs--
+	}
+
 	if nargv < nargs {
 		return nil, ArgumentErrorf(nargv+3, "not enough arguments")
 	}
@@ -229,8 +233,11 @@ func (ctx methodDirectiveHandler) ObjectDirective(name string, argv []string, ob
 	argValues = make([]reflect.Value, nargv)
 	if object != nil {
 		objArgType := methodType.In(objIndex)
+		unPtr := false
 		if objArgType.Kind() == reflect.Ptr {
 			objArgType = objArgType.Elem()
+		} else {
+			unPtr = true
 		}
 		objArgValue := reflect.New(objArgType)
 		err := json.Unmarshal(object, objArgValue.Interface())
@@ -239,7 +246,11 @@ func (ctx methodDirectiveHandler) ObjectDirective(name string, argv []string, ob
 		}
 
 		argValues = append(argValues, reflect.Value{})
-		argValues[objIndex] = objArgValue
+		if unPtr {
+			argValues[objIndex] = objArgValue.Elem()
+		} else {
+			argValues[objIndex] = objArgValue
+		}
 	} else {
 		objIndex = nargv
 	}

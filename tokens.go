@@ -228,7 +228,6 @@ func (t *Tokenizer) nextWord() (tok Token, err error) {
 	word := &wordToken{}
 	tok = word
 	word.line = t.line
-	word.charstops = []charstop{}
 	err = nil
 
 	var quote byte = 0
@@ -315,10 +314,99 @@ func (t *Tokenizer) nextWord() (tok Token, err error) {
 }
 
 func (t *Tokenizer) nextJSON() (tok Token, err error) {
-	// TODO
-	t.lastToken = errorToken
-	return nil, errorAtf(ErrToken, t.info(),
-		"JSON arguments not yet implemented")
+	json := &jsonToken{}
+	tok = json
+	stack := list.New()
+	srcbuf := bytes.NewBuffer(t.line)
+
+	bracket := byte(0)
+	escaped := false
+	ci := t.offset - 1
+	json.srcOffset = ci
+	json.charstops = append(json.charstops, charstop{
+		ci, t.lineno, t.offset,
+	})
+	for {
+		if t.line == nil {
+			t.lineno++
+			t.offset = 1
+			t.line, err = t.r.ReadBytes('\n')
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					t.lastToken = errorToken
+					return nil, errorAtf(ErrEOF, t.info(),
+						"JSON object not finished")
+				} else {
+					return nil, err
+				}
+			}
+
+			srcbuf.Write(t.line)
+			json.charstops = append(json.charstops, charstop{
+				ci, t.lineno, t.offset,
+			})
+		}
+
+		c := t.line[t.offset-1]
+		if bracket == '"' {
+			if c == '\n' {
+				return nil, errorAtf(ErrUnquote, t.info(),
+					"newline in JSON string")
+			} else if escaped {
+				escaped = false
+			} else if c == '\\' {
+				escaped = true
+			} else if c == '"' {
+				back := stack.Back()
+				bracket = back.Value.(byte)
+				stack.Remove(back)
+			}
+
+		} else if c == bracket {
+			back := stack.Back()
+
+			if back == nil {
+				t.offset++
+				srcbuf.Truncate(ci + 1)
+				json.src = srcbuf.Bytes()
+				return
+			}
+
+			bracket = back.Value.(byte)
+			stack.Remove(back)
+
+		} else if c == '{' {
+			if bracket != 0 {
+				stack.PushBack(bracket)
+			}
+
+			bracket = '}'
+
+		} else if c == '[' {
+			if bracket != 0 {
+				stack.PushBack(bracket)
+			}
+
+			bracket = ']'
+
+		} else if c == '"' {
+			stack.PushBack(bracket)
+			bracket = '"'
+
+		} else if c == '\r' {
+			if t.offset == len(t.line) {
+				return nil, errorAt(ErrCRLF, t.info())
+			} else if t.line[t.offset] != '\n' {
+				return nil, errorAt(ErrCRLF, t.info())
+			}
+		}
+
+		ci++
+		t.offset++
+		if t.offset > len(t.line) {
+			t.line = nil
+		}
+	}
 }
 
 // TokenType enumerates the valid types of token.
@@ -411,6 +499,7 @@ func (t *wordToken) Text() []byte {
 
 type jsonToken struct {
 	src       []byte
+	srcOffset int
 	charstops []charstop
 }
 
@@ -419,11 +508,11 @@ func (t *jsonToken) Type() TokenType {
 }
 
 func (t *jsonToken) LineInfo(at int) LineInfo {
-	return findCharstop(at, t.charstops, t.src)
+	return findCharstop(at+t.srcOffset, t.charstops, t.src)
 }
 
 func (t *jsonToken) Text() []byte {
-	return t.src[t.charstops[0].offset-1:]
+	return t.src[t.srcOffset:]
 }
 
 type terminatorToken struct {

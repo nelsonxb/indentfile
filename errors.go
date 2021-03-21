@@ -9,12 +9,13 @@ import (
 var (
 	ErrSyntax = errorWrap("syntax error", nil)
 
-	ErrToken   = errorWrap("syntax error", ErrSyntax)
-	ErrEOF     = errorWrap("unexpected eof", ErrToken)
-	ErrCRLF    = errorWrap("line ending error", ErrToken)
-	ErrIndent  = errorWrap("unexpected indent", ErrToken)
-	ErrOutdent = errorWrap("unmatched indent", ErrToken)
-	ErrUnquote = errorWrap("unclosed quotes", ErrToken)
+	ErrToken       = errorWrap("syntax error", ErrSyntax)
+	ErrEOF         = errorWrap("unexpected eof", ErrToken)
+	ErrCRLF        = errorWrap("line ending error", ErrToken)
+	ErrIndent      = errorWrap("unexpected indent", ErrToken)
+	ErrOutdent     = errorWrap("unmatched indent", ErrToken)
+	ErrUnquote     = errorWrap("unclosed quotes", ErrToken)
+	ErrJSONBracket = errorWrap("unmatched JSON syntax", ErrToken)
 
 	ErrDirective    = errorWrap("directive error", ErrSyntax)
 	ErrUnknown      = errorWrap("unknown directive", ErrDirective)
@@ -171,8 +172,8 @@ func (err errWithLocation) Error() string {
 			err.Err.Error(), err.Lineno, err.Offset, detail)
 	}
 
-	return fmt.Sprintf("%s in file %s at %d:%d%s",
-		err.Err.Error(), err.File, err.Lineno, err.Offset, err.Detail)
+	return fmt.Sprintf("%s in file %s (%d:%d)%s",
+		err.Err.Error(), err.File, err.Lineno, err.Offset, detail)
 }
 
 func (err errWithLocation) Unwrap() error {
