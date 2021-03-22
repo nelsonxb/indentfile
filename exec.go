@@ -53,6 +53,8 @@ func ParseFile(path string, context interface{}) (err error) {
 		if err != nil {
 			return
 		}
+
+		defer r.Close()
 	}
 
 	return ErrorInFile(Parse(r, context), path)
