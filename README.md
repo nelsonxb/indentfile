@@ -1,12 +1,21 @@
 Indentfile text format
 ======================
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/nelsonxb/indentfile.svg)](https://pkg.go.dev/github.com/nelsonxb/indentfile)
+
 Indentfile is a format for text files, designed for configuration.
 This repo contains the reference parser for Go.
 
 
-File structure
---------------
+Usage
+-----
+
+See the [package documentation on pkg.go.dev](https://pkg.go.dev/github.com/nelsonxb/indentfile)
+for more on using the reference parser.
+
+
+Indentfile syntax
+-----------------
 
 An indentfile consists of a sequence of directives.
 Each directive consists of a sequence of strings,
@@ -50,57 +59,3 @@ Although this example is kinda ugly,
 it does a decent job of demonstrating the concept.
 The last argument can be a complex JSON object or array,
 and this doesn't restrict the other features.
-
-
-Implementation
---------------
-
-This reference implementation offers a few ways to parse these files.
-The first two use the `indentfile.Parse` function family.
-
-The most convenient option for most users should be the reflection-based method:
-
-```go
-func main() {
-	context := &ExampleContext{}
-	err := indentfile.Parse(rfd, context)
-	// Or...
-	err = indentfile.ParseFile("filename", context) // Or "-" for stdin
-}
-
-type ExampleContext struct {}
-
-func (*ExampleContext) Config(options ...string) *ExampleConfig {
-	// ...
-}
-
-func (*ExampleContext) Directive(arg1 string, arg2 string) error {
-	// ...
-}
-
-// Note that this is a type that will be automatically picked up
-// and unmarshalled using encoding/json.
-type Greeting struct {
-	Hello string `json:"hello"`
-}
-
-func (*ExampleContext) ObjectDirective(wordArg string, jsonArg []Greeting) (*ObjectConfig, error) {
-	// ...
-}
-
-type ExampleConfig struct {}
-
-func (*ExampleConfig) Property(key string, value string) {
-	// ...
-}
-
-type ObjectConfig struct{}
-
-func (*ObjectConfig) Add(greeting *Greeting) {
-	// ...
-}
-```
-
-It is also possible to use the interface-based API
-(which still uses the same `indentfile.Parse` family of functions),
-or get a token stream directly from `indentfile.NewTokenizer(io.Reader)`.
