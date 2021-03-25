@@ -2,7 +2,7 @@ Indentfile text format
 ======================
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/nelsonxb/indentfile.svg)](https://pkg.go.dev/github.com/nelsonxb/indentfile)
-[![Go](https://github.com/nelsonxb/indentfile/actions/workflows/go.yml/badge.svg)](https://github.com/nelsonxb/indentfile/actions/workflows/go.yml)
+[![Go](https://github.com/nelsonxb/indentfile/actions/workflows/go-tests.yml/badge.svg)](https://github.com/nelsonxb/indentfile/actions/workflows/go-tests.yml)
 
 Indentfile is a format for text files, designed for configuration.
 This repo contains the reference parser for Go.
