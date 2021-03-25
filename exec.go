@@ -3,7 +3,6 @@ package indentfile
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"reflect"
@@ -142,10 +141,6 @@ func getDirectiveHandlerFor(context interface{}) ObjectDirectiveHandler {
 	}
 
 	valueOf := reflect.ValueOf(context)
-	if valueOf.Kind() != reflect.Ptr {
-		panic(fmt.Errorf("Type %v is not a pointer", valueOf.Type()))
-	}
-
 	return methodDirectiveHandler(valueOf)
 }
 

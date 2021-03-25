@@ -77,7 +77,7 @@ type msgCtx struct {
 	prefix   string
 }
 
-func (m *msgCtx) Msg(words ...string) {
+func (m msgCtx) Msg(words ...string) {
 	line := strings.Join(words, " ")
 	if m.prefix != "" {
 		line = m.prefix + " " + line
@@ -86,16 +86,18 @@ func (m *msgCtx) Msg(words ...string) {
 	m.messages.PushBack(line)
 }
 
-func (m *msgCtx) Prefix(words ...string) *msgCtx {
+func (m msgCtx) Prefix(words ...string) msgCtx {
 	newPrefix := strings.Join(words, " ")
 	if m.prefix != "" {
 		newPrefix = m.prefix + " " + newPrefix
 	}
 
-	return &msgCtx{m.messages, newPrefix}
+	// Intentionally not returning a pointer -
+	// this should be valid too!
+	return msgCtx{m.messages, newPrefix}
 }
 
-func (m *msgCtx) Object(obj msgObject) {
+func (m msgCtx) Object(obj msgObject) {
 	if obj.Surround == "" {
 		m.Msg(obj.Text)
 	} else if len(obj.Surround) == 2 {
@@ -105,7 +107,7 @@ func (m *msgCtx) Object(obj msgObject) {
 	}
 }
 
-func (m *msgCtx) End() error {
+func (m msgCtx) End() error {
 	if m.prefix == "" {
 		m.messages.PushBack("<end>")
 	} else {
