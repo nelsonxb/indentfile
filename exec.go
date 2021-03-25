@@ -123,6 +123,15 @@ func ParseFile(path string, context interface{}) (err error) {
 	return ErrorInFile(Parse(r, context), path)
 }
 
+// ParseTokens behaves exactly like Parse,
+// except that it takes an existing token stream.
+// Unlike Parse, it can be used if the stream has already
+// been partially consumed.
+//
+// It stops if it encounters the end of the stream,
+// or if it finds the end of a block that it didn't start.
+// This could be useful if you want to use Parse to handle an indented block -
+// call this function just after tok.Next() returns an IndentToken.
 func ParseTokens(tok *Tokenizer, context interface{}) (err error) {
 	handler := getDirectiveHandlerFor(context)
 	var token Token
