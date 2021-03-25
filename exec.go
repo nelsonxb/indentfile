@@ -38,10 +38,74 @@ func (fn ObjectHandlerFunc) ObjectDirective(name string, argv []string, json []b
 	return fn(name, argv, json)
 }
 
+// Parse reads an indentfile from the stream r and processes its directives.
+// Context determines what directives are available and how they behave.
+// It returns a non-nil error if r.Read() has an error,
+// for any syntactic problems,
+// or if any of the directive handlers return an error.
+// If the returned error value did not come from r.Read(),
+// line and column information can be retrieved
+// using ErrorLocation().
+//
+// If context is a DirectiveHandler,
+// it will be interpreted differently to what's laid out here.
+// See that type's documentation for details.
+//
+// Otherwise, for most types, the set of defined methods
+// determines which top-level directives exist.
+// When a directive is encountered,
+// it is converted from "kebab-case" to "UpperCamelCase".
+// Context is then checked for a method by that converted name.
+// If it exists, and has the right signature,
+// then it is called.
+// Each argument on the directive is passed as a string
+// argument to the method (except for JSON arguments - detailed later).
+// The return value of these methods is then checked.
+//
+// The signature of a method must be valid for the directive search to succeed.
+// If there are no expected JSON arguments,
+// then all arguments must be strings.
+// If this is not the case,
+// then it is assumed that the method
+// isn't actually meant to be a directive.
+// A method may have variadic string arguments -
+// they will be filled as you might expect.
+// If a method has one non-string argument (at any position),
+// then it is assumed that this directive expects a JSON argument.
+// Assuming the JSON argument is provided,
+// it is unmarshalled into a new instance of the argument type
+// before calling the method (using encoding/json).
+//
+// If a type is an EndDirectiveHandler,
+// then the End() method is not considered a valid directive.
+// It will be called once all directives have been processed
+// (no other methods will be called on the context
+// after the call to End()).
+//
+// A method may have zero, one, or two return values.
+// If there are two, then the first is used as a sub-context
+// and the second is used as an error type.
+// If the error is non-nil, it is wrapped with details
+// on where the error occurred, and is returned from Parse.
+// If the error is nil, and the sub-context is non-nil,
+// then it used in an identical manner to the context argument to Parse
+// for any indented directives below the active directive.
+// If the sub-context is nil,
+// then sub-directives will not be permitted
+// and will produce an error.
+//
+// If there is one return value,
+// and it is declared in the signature as an error type,
+// then it is interpreted as with the second return value above.
+// Otherwise, it is interpreted as for the first error value.
 func Parse(r io.Reader, context interface{}) error {
 	return ParseTokens(NewTokenizer(r), context)
 }
 
+// ParseFile behaves exactly like Parse,
+// but gets the reader from the named file.
+// Errors with line information are automatically
+// passed to ErrorInFile().
 func ParseFile(path string, context interface{}) (err error) {
 	var r io.ReadCloser
 	if path == "-" {
