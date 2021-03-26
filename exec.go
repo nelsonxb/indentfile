@@ -271,8 +271,8 @@ func (ctx methodDirectiveHandler) ObjectDirective(name string, argv []string, ob
 		}
 	} else if len(results) == 2 {
 		result := results[0].Interface()
-		err := results[1].Interface().(error)
-		if err != nil {
+		err, isErr := results[1].Interface().(error)
+		if isErr && err != nil {
 			err = DirectiveErrorf("%w", err)
 		}
 		return result, err
