@@ -6,6 +6,10 @@ import (
 	"strings"
 )
 
+// Syntactic errors that may be returned by this package.
+// Tokenizer.Next may return ErrToken and its sub-categories.
+// Parse et. al. may return any of these errors.
+// Both of these functions may also return IO-related errors.
 var (
 	ErrSyntax = errorWrap("syntax error", nil)
 
@@ -23,6 +27,16 @@ var (
 	ErrArgumentJSON = errorWrap("unexpected JSON", ErrArguments)
 )
 
+// ErrorLocation returns the line information
+// associated with a given error,
+// if any exists.
+// Any error may provide line information,
+// by implementing a method
+// `Location() LineInfo`.
+//
+// If the error is not associated with a line,
+// it will return a zero-valued LineInfo
+// (zero is usually an invalid value for all fields).
 func ErrorLocation(err error) LineInfo {
 	if errWithLine, is := err.(lineError); is {
 		return errWithLine.Location()
@@ -31,6 +45,10 @@ func ErrorLocation(err error) LineInfo {
 	return LineInfo{}
 }
 
+// ErrorInFile adds filename information to certain errors.
+// Currently, this function only works for errors
+// returned by this module,
+// and only where line information exists.
 func ErrorInFile(err error, filename string) error {
 	if locErr, is := err.(errWithLocation); is {
 		return errWithLocation{
@@ -44,6 +62,14 @@ func ErrorInFile(err error, filename string) error {
 	return err
 }
 
+// DirectiveErrorf returns a new error,
+// using fmt.Sprintf to generate the error detail.
+//
+// This function behaves similarly to ArgumentErrorf,
+// except that the error location would point to
+// the start of the directive,
+// and by default it wraps ErrDirective
+// instead of ErrArguments.
 func DirectiveErrorf(format string, v ...interface{}) error {
 	err := ErrDirective
 
@@ -67,6 +93,31 @@ func DirectiveErrorf(format string, v ...interface{}) error {
 	}
 }
 
+// ArgumentErrorf returns a new error,
+// using fmt.Sprintf to generate the error detail.
+//
+// By default, the returned error will wrap ErrArguments.
+// If the format string looks like "%w: ...",
+// the prefix will be stripped before passing to fmt.Sprintf,
+// and the first value in v must be an error
+// that will be wrapped instead.
+//
+// If this argument is returned from a directive handler
+// invoked by Parse, ParseFile, or ParseTokens,
+// then it will be given line information
+// based on the given index.
+// This information will point to the argument
+// specified by the zero-based index.
+// If the index is negative,
+// the information will point to a JSON argument
+// (or the end of the line if none exists).
+//
+// If converted, the error returned from Parse
+// will not wrap the error returned from ArgumentErrorf;
+// however, both of these errors wrap ErrDirective
+// or the wrapped error as specified by %w.
+// The error returned from Parse
+// will also match ErrArguments under errors.Is.
 func ArgumentErrorf(index int, format string, v ...interface{}) error {
 	err := ErrArguments
 
