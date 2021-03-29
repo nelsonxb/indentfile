@@ -10,20 +10,59 @@ import (
 	"unicode"
 )
 
+// A DirectiveHandler provides custom lookup and behaviour for directives.
+// When a context object matches this interface,
+// the Directive method will be called
+// instead of performing a reflection-based search.
+//
+// If err is non-nil, then parsing stops
+// and the error is propagated up through Parse.
+// If subctx is non-nil, then an indented block may be provided.
+// If subctx is nil and an indented block is provided,
+// then this is an error.
+//
+// Directive will not be called if a JSON argument is provided.
+// If the type does not also implement ObjectDirectiveHandler,
+// then any JSON arguments will produce an error.
 type DirectiveHandler interface {
-	Directive(name string, argv []string) (interface{}, error)
+	Directive(name string, argv []string) (subctx interface{}, err error)
 }
 
+// An ObjectDirectiveHandler provides custom lookup and behaviour for directives.
+// For directives specified without JSON arguments,
+// Directive is called as described for DirectiveHandler.
+// For directives specified with JSON arguments,
+// ObjectDirective is called instead.
+//
+// The json argument can be passed directly to
+// encoding/json.UnmarshalJSON or the like.
+// Otherwise, the API for this method is exactly
+// as for Directive.
 type ObjectDirectiveHandler interface {
 	DirectiveHandler
 	ObjectDirective(name string, argv []string, json []byte) (interface{}, error)
 }
 
+// An EndDirectiveHandler allows a context to have some cleanup.
+// The End method is called if an outdent closes the current context,
+// or if there was no indent into the context.
+//
+// If the returned error is non-nil,
+// it is propagated up through Parse.
 type EndDirectiveHandler interface {
 	End() error
 }
 
+// HandlerFunc is a convenience type
+// that allows using a function directly as a DirectiveHandler.
+// This handler will not accept JSON arguments.
 type HandlerFunc func(name string, argv []string) (interface{}, error)
+
+// ObjectHandlerFunc is a convenience type
+// that allows using a function directly as an ObjectDirectiveHandler.
+// When a directive has no JSON argument,
+// the json parameter will be nil.
+// Otherwise, should behave exactly as in ObjectDirectiveHandler.
 type ObjectHandlerFunc func(name string, argv []string, json []byte) (interface{}, error)
 
 func (fn HandlerFunc) Directive(name string, argv []string) (interface{}, error) {
@@ -131,7 +170,8 @@ func ParseFile(path string, context interface{}) (err error) {
 // It stops if it encounters the end of the stream,
 // or if it finds the end of a block that it didn't start.
 // This could be useful if you want to use Parse to handle an indented block -
-// call this function just after tok.Next() returns an IndentToken.
+// call this function just after tok.Next() returns an IndentToken,
+// and ParseTokens will return after the corresponding OutdentToken.
 func ParseTokens(tok *Tokenizer, context interface{}) (err error) {
 	handler := getDirectiveHandlerFor(context)
 	var token Token
@@ -225,6 +265,8 @@ func (h *patchedHandler) ObjectDirective(name string, argv []string, object []by
 	return nil, ErrArgumentJSON
 }
 
+// methodDirectiveHandler implements an ObjectDirectiveHandler
+// that implements the reflection lookup as documented in Parse.
 type methodDirectiveHandler reflect.Value
 
 func (ctx methodDirectiveHandler) Directive(name string, argv []string) (interface{}, error) {
